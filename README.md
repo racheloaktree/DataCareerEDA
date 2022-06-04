@@ -8,7 +8,7 @@ The result is an exploration of my own career interests with the intent of givin
 to perform their own analysis based on their personal career preferences.
 
 # Necessary Packages
-{r libraries}
+r libraries
 library(dplyr)
 library(ggplot2)
 library(skimr)
