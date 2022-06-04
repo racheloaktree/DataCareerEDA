@@ -1,0 +1,665 @@
+---
+title: "Exploratory Analysis of US Data Careers"
+author: "Rachel Oakley"
+date: "4/24/2022"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+```{r libraries}
+library(dplyr)
+library(ggplot2)
+library(skimr)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(rpart)
+library(rpart.plot)
+library(formattable)
+library(rattle)
+library(knitr)
+```
+
+```{r import_data}
+jobs <- read_excel("jobs_2021.xlsx", col_names = TRUE)
+```
+
+# Overview
+This project serves as a guide to exploratory data analysis of a dataset of data-related careers. The result is an exploration of my own career interests with the intent of giving the reader ideas of how to perform their own analysis based on their personal career preferences.
+
+## Preliminary Data Prep
+The dataset used for this project was collected by Kaggle user [Nikhil Bhathi](https://www.kaggle.com/datasets/nikhilbhathi/data-scientist-salary-us-glassdoor), and was scraped from Glassdoor.com. 
+
+- Original dataset from Kaggle had 742 observations
+- 4 rows were removed because they did not provide enough information on the company of the listing. 
+- Unneccesary or redudant columns, like company age, were removed. 
+- Some listings had missing information on the year the company was founded and its industry and sector. These entries were manually corrected in Excel
+- Added a column called `timezone` to the dataset using Excel, which transforms the state names into timezones via a method given [here](http://alexsappsdev.blogspot.com/2014/03/how-to-convert-state-to-timezone-using.html).
+- Added a column called `value_of_dollar` that includes the value of a dollar based on the state of the listing
+- Added a column called `median_rent` that includes the median monthly rent based on the state of the listing
+- The last two columns were added in Excel using `VLOOKUP` and a table provided [here](https://www.patriotsoftware.com/blog/accounting/average-cost-living-by-state/)
+
+### Column Titles Explained
+`index`: An index for ease of reference\
+`job_title`: Job title provided with the listing\
+`role_type`: Simplified job title\
+`company_name`: Name of the company\
+`rating`: Rating of the company at time of scraping\
+`timezone`: Timezone of state of listing (majority ruling for states with multiple timezones)\
+`city`: City of job listing\
+`state`: State of job listing\
+`median_rent`: Median rent in the state of the job listing\
+`value_of_dollar`: Value of a dollar based on state of listing\
+`location`: City, State of listing\
+`hq_location`: City, State of headquarters of company of listing\
+`size`: Size of the company of the listing\
+`founded`: Year the company of the listing was founded\
+`ownership`: Ownership type of the company of the listing\
+`industry`: Industry of the company of the listing\
+`sector`: Sector of the industry of the listing\
+`revenue`: Total revenue of the company per year\
+`lower_salary`: Lower end of the Glassdoor estimate of salary for position\
+`upper_salary`: Upper end of the Glassdoor estimate of salary for position\
+`avg_salary`: Average of upper and lower salary for position\
+`seniority_by_title `: Level of seniority determined by job title\
+`degree_req`: Degree requirement by listing\
+`python`: 1 If Python skill is required, 0 Otherwise\
+`spark`: 1 If Spark skill is required, 0 Otherwise\
+`aws`: 1 If AWS skill is required, 0 Otherwise\
+`excel`: 1 If Excel skill is required, 0 Otherwise\
+`sql`: 1 If SQL skill is required, 0 Otherwise\
+`sas`: 1 If SAS skill is required, 0 Otherwise\
+`keras`: 1 If Keras skill is required, 0 Otherwise\
+`pytorch`: 1 If Pytortch skill is required, 0 Otherwise\
+`scikit`: 1 If Scikit skill is required, 0 Otherwise\
+`tensor`: 1 If Tensor skill is required, 0 Otherwise\
+`tableau`: 1 If Tableau skill is required, 0 Otherwise\
+`bi`: 1 If PowerBI skill is required, 0 Otherwise\
+`flink`: 1 If Flink skill is required, 0 Otherwise\
+`mongo`: 1 If MongoDB skill is required, 0 Otherwise\
+`google_an`: 1 If Google Analytics skill is required, 0 Otherwise\
+
+### Skim
+Let's skim through our data to see what datatypes the columns were imported as.
+```{r skim}
+skim(jobs)
+```
+There are a number of character columns that should be changed to factors.
+
+`job_title` has 263 unique values, which is too many to change the column to factor type. However, `role_type` only has 9 unique values, which is a reasonable amount to change the column to factor type. Other columns we should change to factors are:
+
+-   `role_type`
+-   `state`
+-   `size`
+-   `ownership`
+-   `industry`
+-   `sector`
+-   `revenue`
+-   `seniority_by_title`
+-   `degree_req`
+
+```{r change_to_factors}
+# Change the columns listed above from character to factor type
+jobs$role_type <- as.factor(jobs$role_type)
+jobs$state <- as.factor(jobs$state)
+jobs$ownership <- as.factor(jobs$ownership)
+jobs$industry <- as.factor(jobs$industry)
+jobs$sector <- as.factor(jobs$sector)
+jobs$seniority_by_title <- as.factor(jobs$seniority_by_title)
+jobs$degree_req <- as.factor(jobs$degree_req)
+```
+
+Since `size` and `revenue` are ordinal variables, we should also make sure to set them with the correct ordering.
+
+Let's check what their levels are:
+
+```{r size_level_check}
+unique(jobs$size)
+```
+```{r rev_level_check}
+unique(jobs$revenue)
+```
+
+We also want to order `timezone` from west to east. Its levels are:
+```{r timezone_level_check}
+unique(jobs$timezone)
+```
+
+```{r ordered_factors}
+jobs$size <- factor(c(jobs$size),
+                    levels = c("unknown", "1 to 50", "51 - 200", "201 - 500", "501 - 1000", "1001 - 5000", 
+                               "5001 - 10000", "10000+"), ordered = T)
+jobs$revenue <- factor(c(jobs$revenue),
+                    levels = c( "Unknown / Non-Applicable", "Less than $1 million (USD)", 
+                                "$1 to $5 million (USD)","$5 to $10 million (USD)",
+                                "$10 to $25 million (USD)",  "$25 to $50 million (USD)", 
+                                "$50 to $100 million (USD)","$100 to $500 million (USD)",
+                                "$500 million to $1 billion (USD)", "$1 to $2 billion (USD)",
+                                "$2 to $5 billion (USD)", "$5 to $10 billion (USD)",
+                                "$10+ billion (USD)"), ordered = T)
+jobs$timezone <- factor(c(jobs$timezone),
+                        levels = c("Pacific","Mountain","Central","Eastern"), ordered = T)
+```
+
+Now that we have made these adjustments, it's time to start digging into some exploratory data analysis!
+
+# EDA
+We want to answer some questions about the dataset. These questions include:
+
+1. What is the overall distributions of salaries within the dataset?
+2. Can we standardize salaries for comparison of value?
+3. What are the distributions of salaries by `role_type`, `timezone`, `state`, and `sector`?
+4. What are skill requirements by `role_type` overall and by individual `timezone` and `state`?
+
+##   Overall distribution of salaries
+What is the overall distribution of the salaries? 
+```{r salary_hist}
+(avg_sal_hist <- ggplot(jobs, aes(x = avg_salary)) 
+  + geom_histogram(bins = 50,color=1, fill="olivedrab3") 
+  + scale_x_continuous(labels = scales::comma)) + labs(x = "Average Salary", y = "Number of Listings")
+```
+
+The distribution of salaries is **right skewed**, with more outliers toward the high end of the salary spectrum. The values appear to range from \$15k to \$210k and the median appears to fall around \$90k.
+
+Here are some summary statistics for `avg_salary`.
+
+```{r avg_salary_summary}
+summary(jobs$avg_salary)
+```
+
+## Analysis by Role Type
+
+Faceted histograms and boxplots can be used to show the distribution of `avg_salary` by `role_type`.
+
+#### Histograms of Salaries by Role
+
+```{r salary_hist_by_role}
+# Histograms of salary faceted by job title
+histos_salary_title <- ggplot(jobs, aes(x = lower_salary, color = 2,  fill = role_type)) + 
+                              geom_histogram(binwidth = 10) + 
+                              labs(x = "Avg Salary (k)", y = "Listings", 
+                                   title = "Listings by Role") + 
+                              facet_wrap(~role_type, nrow = 3) + 
+                              theme(legend.position="none")
+histos_salary_title
+```
+
+Some role types have a lot fewer listings than others. From the histograms it appears that data scientist roles have the highest number of listings as well as the highest upper end salary. Director and data modeler roles have the fewest listings. 
+
+#### Listing Count by Role
+
+How many listings there are for each position type?  
+
+```{r groupby_role_count}
+groupby_role <- group_by(jobs,role_type) 
+
+groupby_role_count <- groupby_role %>% 
+                        summarize(Count=n(), Proportion = round(n()/nrow(jobs),2)) %>% 
+                        arrange(desc(Count))
+kable(groupby_role_count,"simple")
+```
+
+At 310 listings, data scientist roles take up nearly half of the dataset, while directors, data modelers, and other data professionals each take up only ~1% of the set.
+
+#### Average Salary by Role
+
+```{r groupby_role_avg_salary}
+groupby_role_avg_salary <- groupby_role %>% 
+                        summarize(Avg_SalaryK=round(mean(avg_salary),2)) %>% 
+                        arrange(desc(Avg_SalaryK))
+kable(groupby_role_avg_salary, "simple")
+```
+
+#### Boxplots of Salaries by Role
+
+Using boxplots we can visualize the 25th, 50th, and 75th percentiles of our data for each role type, along with their outliers.
+
+```{r boxplots_sal_job_title}
+ggplot(data=jobs, aes(fill=role_type)) +
+  geom_boxplot(mapping = aes(x= reorder(role_type, avg_salary, FUN= median),
+                y=avg_salary)) + 
+                coord_flip() +
+                labs(x = "Role Type", 
+                      y = "Average Salary", 
+                      title = "Boxplots of Average Salary by Role")+
+                              theme(legend.position="none")
+```
+
+Now we are starting to see some points of interest in our data. 
+
+Director roles have the highest mean salary, but also have the least amount of data points (along with data modelers). 
+
+Roles with more data points tend to have more outliers, with the highest `avg_salary` outliers falling in the data scientist category. Data scientists also have an outlier with the lowest salary. 
+
+I'm curious about what that outlier is, so let's find it.
+
+### Locating an Outlier in the Data
+
+The outlier is the only observation falling under `avg_salary` of 25k, so we can use a filter to locate this oberservation.
+```{r find_outlier}
+outlier <-groupby_role %>% filter(avg_salary<25)
+kable(outlier[,c(1,2,4,8,19,20,21)],"simple")
+```
+
+Ah, so this is a data scientist position for NPD. Looking to Glassdoor.com, I found that there must be an error with this outlier, as a data scientist position for NPD is listed as being between $128-204k per year. The scraper tool may have mistakenly scraped the cash bonus values instead of the salary bonus values.  
+
+Let's fix this value:
+```{r fix_outlier}
+jobs[239, "lower_salary"] = 128
+jobs[239, "upper_salary"] = 204
+# Take the average of both these values for the "avg_salary" column
+jobs[239, "avg_salary"] = (jobs[239, "lower_salary"] + jobs[239, "upper_salary"])/2
+kable(jobs[239, c(c(1,2,4,8,19,20,21))],"simple")
+```
+
+### Skills Most Required by Role
+
+From the skim output above I immediately noticed that there are certain skills than are more required than others. Let's visualize this with more clarity.
+
+For each job title, we would like to look at the percentage of job listings that require certain technical skills. In our dataset we have information on the requirement of 16 different technical tools for the job. In the ungrouped data, requirement is denoted by an indicator variable, where 1 means the skill is required and 0 means it is not. 
+
+By finding the mean of each skill column we get the percentage of listings that require that skill. Let's create a table that helps us visualize which skills are most required for each simplified job title.
+
+First we create a grouped tbl where we group our `jobs` dataframe by `role_type`.
+
+Now we summarize `groupby_role` by the means of each tech skill.
+
+##### Role Skill Requirements
+```{r skill_importance}
+skill_importance <- groupby_role %>% 
+                      summarize(Python = round(mean(python), 2),
+                                Spark = round(mean(spark),2),
+                                AWS = round(mean(aws),2),
+                                Excel = round(mean(excel),2),
+                                SQL = round(mean(sql),2),
+                                SAS = round(mean(sas),2),
+                                Keras = round(mean(keras),2),
+                                Pytorch = round(mean(pytorch),2),
+                                Scikit = round(mean(scikit),2),
+                                Tensor = round(mean(tensor),2),
+                                Hadoop = round(mean(hadoop),2),
+                                Tableau = round(mean(sql),2),
+                                BI = round(mean(bi),2),
+                                Flink = round(mean(flink),2),
+                                Mongo = round(mean(mongo),2),
+                                GoogleAn = round(mean(google_an),2))
+kable(skill_importance, "simple")
+```
+
+Great, but we want to make it easier to see at a glance which skills are most important for the most roles. We can rearrange the table so that the skill columns are organized in descending order by their column means.
+
+First we need to get the means of the second through 17th columns.
+
+```{r skill_means}
+skill_means <- colMeans(skill_importance[2:17])
+skill_means
+```
+
+And now we want to find the order of these means from highest to lowest and keep track of that order so that we can rearrange our tibble. Because the ordering excludes the first column we must add 1 to the value of the column orders and then append 1 to the beginning to keep the role_type column in its original position.
+
+```{r skill_order}
+skill_order <- rev(order(skill_means)+1)
+skill_order <- append(1, skill_order)
+skill_order
+```
+
+Now use these order values to rearrange the order of our columns by their column means. 
+
+##### Role Skill Requirents (Ordered)
+```{r skill_importance2}
+skill_importance2 <- skill_importance[skill_order]
+kable(skill_importance2, "simple")
+```
+
+Great! Now we can clearly see that for the most role types, Excel is required most often, followed by Tableau, SQL and Python.
+
+It's important to remember that these may be different from the overall importance of each skill. This is because each position type has a different count, so taking the mean of means is going to be different than the overall mean. Still, it makes information easier to read in this tibble when it is ordered in such a way.
+
+But let's also look at the overall 'importance' of each skill to compare.
+
+```{r skill_count_bar}
+skill_count <- groupby_role %>% 
+                              summarise(
+                                Excel = mean(excel),
+                                Tableau = mean(tableau),
+                                SQL = mean(sql),
+                                Python = mean(python),
+                                AWS = mean(aws),
+                                Spark = mean(spark),
+                                Hadoop = mean(hadoop),
+                                BI = mean(bi),
+                                Tensor = mean(tensor),
+                                Scikit = mean(scikit),
+                                Mongo = mean(mongo),
+                                Pytorch = mean(pytorch),
+                                SAS = mean(sas),
+                                GoogleAn = mean(google_an),
+                                Keras = mean(keras),
+                                Flink = mean(flink)) %>% 
+                          gather( "category", "mean", -role_type)
+
+ggplot(skill_count,aes(category, mean)) + 
+  geom_col(aes(fill = category), position = "dodge",)+ facet_wrap(.~role_type, ncol=3) + 
+                              theme(legend.position="none")+ 
+                          labs(x = "Skill", 
+                                y = "Mean Required by Role", 
+                                title = "Skill Requirements by Role") + 
+                                theme(axis.text.x = element_text(angle = 45, 
+                                                                 hjust=1,size = 8,))
+```
+
+- **Python** is required most for *data scientist* and *machine learning* engineer positions. 
+- **Excel** is required most for *other data professionals*, *data modelers*, and *analysts*
+- **SQL** is required most for *data modelers*, *data engineers* and *analysts*
+
+## By Timezone
+
+Examining our dataset by timezine can help us uncover locational differences in roles and salaries.
+```{r by_timezone}
+by_timezone <- group_by(jobs, timezone)
+```
+
+### Listing Count
+```{r listings_by_timezone_bar}
+listings_by_timezone_bar <- ggplot(jobs, aes(x = timezone, fill=timezone)) + 
+                              geom_bar() +
+                              labs(x = "Timezone", 
+                                   y = "Listing Count", 
+                                   title = "Listing Count by Timezone")
+listings_by_timezone_bar
+```
+
+### Boxplots of Salaries by Timezone
+```{r salary_by_timezone}
+salary_by_timezone_box <- ggplot(jobs, aes(x = timezone, y = avg_salary, fill= timezone)) + geom_boxplot() +
+                                 labs(x = "Timezone", 
+                                   y = "Average Salary", 
+                                   title = "Boxplots of Average Salary by Timezone")+
+                              theme(legend.position="none")
+salary_by_timezone_box
+
+```
+
+### Histograms of Salaries by Timezone
+```{r histos_salary_timezone}
+# Histograms of salary faceted by timezone
+histos_salary_timezone <- ggplot(jobs, aes(x = avg_salary, color = 1,  fill = timezone)) + 
+                              geom_histogram(binwidth = 10) + 
+                              labs(x = "Average Salary") + facet_wrap(~timezone, nrow = 3) +
+                              theme(legend.position="none")
+histos_salary_timezone
+```
+
+### Eastern Timezone
+I'm interested in looking at jobs in the Eastern `timezone`, so I'm going to filter the grouped dataframe `by_timezome` by Eastern.
+
+```{r eastern_timezone_filter}
+# Filter by_timezone by timezone="Eastern"
+eastern_timezone_filter <- filter(jobs, timezone=="Eastern")
+```
+
+#### Listing Count by State in Eastern Timezone
+Which states in the Eastern timezone have the highest listing counts?
+```{r count_by_state_eastern}
+count_by_state_eastern <- filter(group_by(jobs, state), timezone=="Eastern") %>% 
+                    summarize(Count=n()) %>% 
+                    arrange(desc(Count))
+kable(count_by_state_eastern, "simple")
+```
+
+And let's again look at the boxplots of salaries by roles within the Eastern `timezone`.
+
+```{r eastern_salary_by_role_box}
+eastern_salary_by_role_box <- ggplot(data=eastern_timezone_filter, aes(fill=role_type)) +
+                          geom_boxplot(mapping = aes(x= reorder(role_type, avg_salary, FUN= median),
+                          y=avg_salary)) + coord_flip() + 
+                          labs(x = "Role Type", 
+                                y = "Average Salary", 
+                                title = "Boxplots of Average Salary by Role in Eastern Timezone") +
+                              theme(legend.position="none")
+eastern_salary_by_role_box
+```
+
+Overall, the trend of these boxplots are the same as those in "Boxplots of Average Salary by Role."
+
+### Standardized Salaries
+We've got the variable `value_of_dollar`, so we can use this to standardize the salaries in the dataset to get a better idea of how valuable a salary is based on the state of the job. We will make a new column in the dataframe called `std_salary` that multiplies `avg_salary` by `value_of_dollar`. 
+
+```{r std_salary}
+jobs$std_salary <- jobs$avg_salary*jobs$value_of_dollar
+```
+
+Looking at boxplots of `std_salary` by timezone:
+
+```{r std_salary_by_timezone}
+std_salary_by_timezone_box <- ggplot(jobs, aes(x = timezone, y = std_salary, fill=timezone)) + geom_boxplot() +
+                                 labs(x = "Timezone", 
+                                   y = "Standardized Salary", 
+                                   title = "Boxplots of Standardized Salary by Timezone")+
+                              theme(legend.position="none")
+std_salary_by_timezone_box
+```
+
+Here we see that the median salaries between the timezones are much closer together, which makes sense since they have all been standardized.
+
+```{r boxplots_std_sal_job_title}
+boxplots_std_sal_job_title <- ggplot(data=jobs, aes(fill=role_type)) +
+                geom_boxplot(mapping = aes(x= reorder(role_type, std_salary, FUN= median),
+                y=avg_salary)) + 
+                coord_flip() +
+                labs(x = "Role Type", y = "Average Salary", 
+                     title = "Boxplots of Standardized Salary by Role")+
+                              theme(legend.position="none")
+boxplots_std_sal_job_title
+
+```
+
+#### Standardized Salaries By State
+
+Here's a table with the top 10 un-standardized `avg_salary` by `state`:
+
+```{r avg_sal_by_state}
+# Chart same as std_sal_by_state but with unstandardized salaries.
+by_state <- group_by(jobs, state)
+avg_sal_by_state <- summarize(by_state, 
+          avg_salary=round(mean(avg_salary),2))
+avg_sal_by_state <- avg_sal_by_state %>%
+                      arrange(desc(avg_salary))
+kable(head(avg_sal_by_state, 10),"simple")
+```
+
+Compare that with the table of the top *standardized* salaries by state. 
+```{r std_sal_by_state}
+std_sal_by_state <- summarize(by_state, 
+          std_salary=round(mean(std_salary),2))
+std_sal_by_state <- std_sal_by_state %>%
+                      arrange(desc(std_salary))
+kable(head(std_sal_by_state, 10))
+```
+
+Interesting! California slides down from 1st place to 5th. Kentucky moves up from 11th to 3rd.  These, crudely put, are the top 10 states for getting the best value out of your salary.
+
+```{r count_by_state}
+count_by_state <- by_state %>% 
+                    summarize(Count=n()) %>% 
+                    arrange(desc(Count))
+kable(count_by_state, "simple")
+```
+
+## North Carolina Jobs
+
+I have [heard that the job market is hot in North Carolina](https://www.linkedin.com/news/story/the-hottest-job-markets-are-midsize-5834762/?msgControlName=reply_to_sender&msgConversationId=2-YmY3YjQyMTAtZWVlZS00M2QwLThmNjctNmFjMDVjNjIwNjk0XzAxMw%3D%3D&msgOverlay=true),
+so let's check out what kind of jobs are listed there.
+
+### Listings
+```{r filter_by_state_nc}
+# Filter jobs by state="NC"
+filter_by_state_nc <- filter(jobs, state=="NC")
+kable(filter_by_state_nc[,c(1,2,4,21)])
+```
+
+#### Hottest Industry in NC
+What's the 'hottest' industry in North Carolina based on our data?
+```{r hottest_industry_nc}
+filter_by_state_nc %$% industry %>% table %>% which.max %>% names
+```
+
+#### Hottest Sector in NC
+What's the 'hottest' sector in North Carolina based on our data?
+```{r hottest_sector_nc}
+filter_by_state_nc %$% sector %>% table %>% which.max %>% names
+```
+
+#### Hottest Role in NC
+What's the 'hottest' data role in North Carolina?
+```{r hottest_role_nc}
+filter_by_state_nc %$% role_type %>% table %>% which.max %>% names
+```
+
+### Salary Distribution by Sector
+What do the `avg_salary` distributions look like by `sector` in North Carolina?
+
+```{r nc_salary_by_sector_box}
+nc_salary_by_sector_box <- ggplot(data=filter_by_state_nc, aes(fill=sector)) +
+                          geom_boxplot(mapping = aes(x= reorder(sector, avg_salary, 
+                                                                FUN= median),
+                          y=avg_salary)) + coord_flip() + 
+                          labs(x = "Sector", 
+                                y = "Average Salary", 
+                                title = "Boxplots of Average Salary by Sector in NC")+
+                              theme(legend.position="none")
+nc_salary_by_sector_box
+```
+
+### Salary Distribution by Role
+What do the `avg_salary` distributions look like by `role_type` in North Carolina?
+
+```{r nc_salary_by_role_box}
+nc_salary_by_role_box <- ggplot(data=filter_by_state_nc, aes(fill=role_type)) +
+                          geom_boxplot(mapping = aes(x= reorder(role_type, avg_salary, FUN= median),
+                          y=avg_salary)) + coord_flip() + 
+                          labs(x = "Role Type", 
+                                y = "Average Salary", 
+                                title = "Boxplots of Average Salary by Role in NC")+
+                              theme(legend.position="none")
+nc_salary_by_role_box
+```
+
+### Skills Required
+```{r skill_count_nc}
+# What skills are required most in the roles in North Carolina?
+skill_count_nc <- filter_by_state_nc %>% 
+                  group_by(role_type) %>% 
+                                    summarise(
+                                      Excel = mean(excel),
+                                      Tableau = mean(tableau),
+                                      SQL = mean(sql),
+                                      Python = mean(python),
+                                      AWS = mean(aws),
+                                      Spark = mean(spark),
+                                      Hadoop = mean(hadoop),
+                                      BI = mean(bi),
+                                      Tensor = mean(tensor),
+                                      Scikit = mean(scikit),
+                                      Mongo = mean(mongo),
+                                      Pytorch = mean(pytorch),
+                                      SAS = mean(sas),
+                                      GoogleAn = mean(google_an),
+                                      Keras = mean(keras),
+                                      Flink = mean(flink)) %>% 
+                                    gather( "category", "mean", -role_type)
+
+ggplot(skill_count_nc,aes(category, mean)) + 
+  geom_col(aes(fill = category), position = "dodge",)+ facet_grid(.~role_type) +coord_flip()+ 
+                              theme(legend.position="none")+ 
+                          labs(x = "Skill", 
+                                y = "Mean Required by Role", 
+                                title = "Skill Requirements by Role in NC")
+```
+
+Between data engineers, data scientists and other scientists in NC:
+
+- A higher proportion of *data scientist* positions require knowledge of Python, Spark, and Excel than other roles
+- A higher proportion of *data engineering* positions require knowledge of SQL,Hadoop, and AWS than other positions
+- Of the information on skills gathered, *other scientists* only require experience of Excel
+
+What are the `other scientist` jobs in North Carolina?
+
+```{r other_scientist_nc}
+other_scientist_nc <- filter(jobs, state == "NC" & role_type=="other scientist") %>% 
+                    arrange(desc(std_salary))
+kable(other_scientist_nc[,c(1,2,4,21)], "simple")
+```
+
+Oh wow! Most of these jobs are for a company called Reynolds American, which is a tobacco company. Positions for toxicologists does not seem like it should be in this dataset.
+
+These jobs don't look appealing to me. But there were two other role types that do look interesting to me: `data engineer` and `data modeler`. I want to look at these positions in the Eastern timezone and sort them by `std_salary `.
+
+## Eastern Timezone Data Engineers and Modelers
+
+```{r engineer_modeler_eastern}
+engineer_modeler_eastern <- filter(jobs, timezone == "Eastern" & xor(role_type=="data engineer", role_type=="data modeler")) %>% 
+  arrange(desc(std_salary))
+
+kable(engineer_modeler_eastern[,c(1,2,4,21)],"simple")
+```
+
+Now these jobs look interesting. 
+
+What kind of skills do they require?
+
+### Skills Required
+
+```{r skill_count_estern_modeler_engineer}
+# What skills are required most in the roles in North Carolina?
+filterby_eastern_tz <- filter(jobs, timezone == "Eastern")
+skill_count_eastern_mod_eng <- filterby_eastern_tz %>% 
+                                group_by(role_type) %>% 
+                                filter(xor(role_type=="data modeler",role_type=="data engineer")) %>% 
+                                    summarise(
+                                      Excel = mean(excel),
+                                      Tableau = mean(tableau),
+                                      SQL = mean(sql),
+                                      Python = mean(python),
+                                      AWS = mean(aws),
+                                      Spark = mean(spark),
+                                      Hadoop = mean(hadoop),
+                                      BI = mean(bi),
+                                      Tensor = mean(tensor),
+                                      Scikit = mean(scikit),
+                                      Mongo = mean(mongo),
+                                      Pytorch = mean(pytorch),
+                                      SAS = mean(sas),
+                                      GoogleAn = mean(google_an),
+                                      Keras = mean(keras),
+                                      Flink = mean(flink)) %>% 
+                                    gather( "category", "mean", -role_type)
+
+ggplot(skill_count_eastern_mod_eng,aes(category, mean)) + 
+  geom_col(aes(fill = category), position = "dodge",)+ facet_grid(.~role_type) +coord_flip()+ 
+                              theme(legend.position="none")+ 
+                          labs(x = "Skill", 
+                                y = "Mean Required by Role", 
+                                title = "Skill Requirements of Eastern Data Engineers and Modelers")
+```
+
+Between data engineers and data modelers in the Eastern timezone:
+
+- A higher proportion of data engineering positions require knowledge of Python than data modeling positions
+- A higher proportion of data modeling positions require knowledge of SQL and Excel than data engineering positions
+
+# Closing Thoughts
+It's amazing how powerful of a tool EDA is to aid in decision-making. We were able to ask questions of the data and receive answers with data to back them up. Overall, we were able to
+
+1. Determine the overall distributions of salaries within the dataset
+2. Standardize salaries for comparison of value 
+3. Determine distributions of salaries by `role_type`, `timezone`, `state`, and `sector`
+4. Determine skill requirements by `role_type` overall and by `timezone` and `state`.
+
